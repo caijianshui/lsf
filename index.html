@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>厦门律师费计算器 2025指引版</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;margin:0;padding:20px;background:#f5f5f5}
+  .card{max-width:600px;margin:auto;background:#fff;padding:25px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+  h2{margin-top:0;text-align:center;letter-spacing:1px}
+  label{display:block;margin:15px 0 5px;font-weight:600}
+  select,input{width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:14px}
+  .hidden{display:none}
+  .result{margin-top:20px;padding:15px;background:#e6f7ff;border-left:4px solid #1890ff;border-radius:4px}
+  .result b{font-size:18px;color:#0050b3}
+  button{background:#1890ff;color:#fff;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:16px}
+  button:hover{background:#40a9ff}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th,td{border:1px solid #d9d9d9;padding:6px;text-align:center}
+  th{background:#fafafa}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>厦门律师费计算器（2025指引版）</h2>
+
+  <label>① 选择大类</label>
+  <select id="category"></select>
+
+  <label>② 选择案件类型</label>
+  <select id="subType"></select>
+
+  <!-- 只有“涉及财产”的民事诉讼/行政才会出现 -->
+  <div id="amountBox" class="hidden">
+    <label>③ 标的额（元）</label>
+    <input type="number" id="amount" min="0" step="1000" placeholder="请输入争议标的金额">
+  </div>
+
+  <!-- 常年法律顾问直接出表格 -->
+  <div id="counselTable" class="hidden">
+    <label>③ 收费标准（单位：万元/年）</label>
+    <table>
+      <thead><tr><th>档位</th><th>类型</th><th>参考区间</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>党政机关/事业单位/社会团体</td><td>3 – 20</td></tr>
+        <tr><td>2</td><td>集团企业</td><td>10 – 60</td></tr>
+        <tr><td>3</td><td>普通生产型企业</td><td>3 – 20</td></tr>
+        <tr><td>4</td><td>非生产/小微型企业</td><td>2 – 10</td></tr>
+        <tr><td>5</td><td>家庭及个人</td><td>1 – 5</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <button id="calcBtn">计算律师费</button>
+
+  <div id="result" class="result hidden"></div>
+</div>
+
+<script>
+/* ========== 只读数据 ========== */
+const data = {
+  民事诉讼: [
+    {name:"不涉及财产关系", hasAmount:false, base:[10000,100000]},
+    {name:"涉及财产关系",   hasAmount:true,  civil:true},
+    {name:"刑事附带民事",   hasAmount:true,  civil:true},
+    {name:"特别/督促/公示催告",hasAmount:false,base:[10000,100000]}
+  ],
+  行政诉讼: [
+    {name:"不涉及财产关系", hasAmount:false, base:[10000,50000]},
+    {name:"涉及财产关系",   hasAmount:true,  civil:true}
+  ],
+  刑事: [
+    {name:"侦查阶段",           hasAmount:false, base:[10000,200000]},
+    {name:"审查起诉阶段",       hasAmount:false, base:[20000,300000]},
+    {name:"一审（普通）",       hasAmount:false, base:[30000,500000]},
+    {name:"一审（认罪认罚）",   hasAmount:false, base:[20000,200000]},
+    {name:"代理被害人报案",     hasAmount:false, base:[30000,300000]},
+    {name:"刑事自诉案件",       hasAmount:false, base:[30000,300000]}
+  ],
+  非诉: [
+    {name:"律师函",           hasAmount:false, base:[1000,5000]},   // 实务常见区间，可再改
+    {name:"常年法律顾问",   hasAmount:false, counsel:true}         // 直接出表格
+  ]
+};
+
+/* ========== 分段累进费率表（民事涉及财产用） ========== */
+const tiers = [
+  {min:0,         max:100000,      fixed:[6000,10000], rate:[0,0]},
+  {min:100000,    max:1000000,     fixed:[0,0],        rate:[0.06,0.09]},
+  {min:1000000,   max:5000000,     fixed:[0,0],        rate:[0.04,0.06]},
+  {min:5000000,   max:10000000,    fixed:[0,0],        rate:[0.02,0.04]},
+  {min:10000000,  max:50000000,    fixed:[0,0],        rate:[0.01,0.03]},
+  {min:50000000,  max:100000000,   fixed:[0,0],        rate:[0.005,0.015]},
+  {min:100000000, max:Infinity,    fixed:[0,0],        rate:[0.0025,0.01]}
+];
+
+/* ========== DOM 快捷 ========== */
+const $ = id => document.getElementById(id);
+const categorySel = $('category');
+const subTypeSel  = $('subType');
+const amountBox   = $('amountBox');
+const counselBox  = $('counselTable');
+const amountInp   = $('amount');
+const calcBtn     = $('calcBtn');
+const resultBox   = $('result');
+
+/* ========== 初始化大类 ========== */
+Object.keys(data).forEach(c=>{
+  const opt = document.createElement('option');
+  opt.textContent = c;
+  categorySel.appendChild(opt);
+});
+changeCategory();
+
+/* ========== 事件绑定 ========== */
+categorySel.addEventListener('change', changeCategory);
+subTypeSel.addEventListener('change',  changeSubType);
+calcBtn.addEventListener('click', calculate);
+
+/* ========== 函数 ========== */
+function changeCategory(){
+  subTypeSel.innerHTML = '';
+  data[categorySel.value].forEach(it=>{
+    const op = document.createElement('option');
+    op.textContent = it.name;
+    subTypeSel.appendChild(op);
+  });
+  changeSubType();
+}
+function changeSubType(){
+  const arr = data[categorySel.value];
+  const cfg = arr[subTypeSel.selectedIndex];
+  amountBox.classList.toggle('hidden', !cfg.hasAmount);
+  counselBox.classList.toggle('hidden', !cfg.counsel);
+  resultBox.classList.add('hidden');
+}
+function calculate(){
+  const arr = data[categorySel.value];
+  const cfg = arr[subTypeSel.selectedIndex];
+  if(cfg.counsel){
+    // 常年法律顾问直接出表格，无需计算
+    resultBox.innerHTML = '以上为官方指导价区间，具体由双方协商确定。';
+    resultBox.classList.remove('hidden');
+    return;
+  }
+  if(cfg.hasAmount){
+    const v = Number(amountInp.value);
+    if(!v||v<=0){alert('请输入有效的标的额');return;}
+    const [low,high] = calcRange(v);
+    resultBox.innerHTML = `参考收费：<b>${low.toLocaleString()} ～ ${high.toLocaleString()}</b> 元（一个审级）`;
+    resultBox.classList.remove('hidden');
+  }else{
+    const [low,high] = cfg.base;
+    resultBox.innerHTML = `参考收费：<b>${low.toLocaleString()} ～ ${high.toLocaleString()}</b> 元`;
+    resultBox.classList.remove('hidden');
+  }
+}
+function calcRange(amount){
+  let lowTotal = 0, highTotal = 0, rest = amount;
+  for(const t of tiers){
+    if(rest<=0) break;
+    const slice = Math.min(rest, t.max - t.min);
+    if(t.fixed[1]>0){
+      lowTotal  += t.fixed[0];
+      highTotal += t.fixed[1];
+    }else{
+      lowTotal  += slice * t.rate[0];
+      highTotal += slice * t.rate[1];
+    }
+    rest -= slice;
+  }
+  return [Math.round(lowTotal), Math.round(highTotal)];
+}
+</script>
+</body>
+</html>
